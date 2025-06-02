@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyCam Standalone PWA</title>
+  <!-- Link to PWA manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: #000;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    #appContainer {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background: #000;
+    }
+
+    /* Camera / Gallery toggle */
+    #cameraView {
+      display: none;
+      position: relative;
+      flex: 1;
+      background: #000;
+    }
+    #galleryView {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      background: #f0f0f0;
+    }
+
+    /* Video element covers full cameraView */
+    #cameraVideo {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+
+    /* Bottom controls in camera mode */
+    #cameraControls {
+      position: absolute;
+      bottom: 20px; left: 0; right: 0;
+      height: 80px;
+    }
+    #galleryBtn {
+      position: absolute;
+      left: 20px;
+      bottom: 0;
+      width: 60px; height: 60px;
+      border: none; border-radius: 50%;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      cursor: pointer;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: 60%;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='3' y='3' width='8' height='8' fill='%23000'/%3E%3Crect x='13' y='3' width='8' height='8' fill='%23000'/%3E%3Crect x='3' y='13' width='8' height='8' fill='%23000'/%3E%3Crect x='13' y='13' width='8' height='8' fill='%23000'/%3E%3C/svg%3E");
+      transition: transform 0.2s, background 0.2s;
+    }
+    #galleryBtn:hover {
+      background: rgba(255,255,255,1);
+      transform: scale(1.1);
+    }
+    #captureBtn {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      transform: translateX(-50%);
+      width: 80px; height: 80px;
+      border: 4px solid #fff;
+      border-radius: 50%;
+      background: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    #captureBtn:hover {
+      transform: translateX(-50%) scale(1.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #captureBtn::before {
+      content: "";
+      display: block;
+      width: 40px; height: 40px;
+      background: #ff3b30;
+      border-radius: 50%;
+    }
+
+    /* Gallery toolbar */
+    #selectArea {
+      padding: 10px; background: #222;
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+    }
+    #clickBtn, #selectBtn {
+      background: #444; color: #fff; border: none;
+      padding: 8px 12px; border-radius: 4px; cursor: pointer;
+      font-size: 14px; transition: background 0.2s;
+    }
+    #clickBtn:hover { background: #555; }
+    #selectBtn.active { background: #0084ff; }
+    #selectBtn.active:hover { background: #006fcc; }
+
+    /* Action buttons (batch mode) */
+    #actionButtons {
+      display: none;
+      gap: 10px;
+    }
+    .action-btn {
+      background: #444; color: #fff; border: none;
+      padding: 6px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 14px;
+    }
+    .action-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+
+    /* Thumbnails */
+    #galleryContainer {
+      flex: 1; overflow-y: auto; padding: 5px; background: #f0f0f0;
+    }
+    .date-header {
+      margin: 10px 0 5px 10px; font-size: 1.2em; color: #333; text-align: left;
+    }
+    .gallery-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
+      margin-bottom: 10px;
+      padding: 0 5px;
+    }
+    .thumb-container {
+      position: relative;
+      border-radius: 4px;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .thumb-container img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      cursor: pointer;
+      filter: brightness(0.9);
+      transition: filter 0.2s;
+    }
+    .thumb-container img:hover {
+      filter: brightness(1);
+    }
+    .thumb-checkbox {
+      position: absolute;
+      top: 5px; left: 5px;
+      width: 20px; height: 20px;
+      background: rgba(255,255,255,0.7);
+      border-radius: 3px;
+      display: none;
+    }
+    .thumb-checkbox input[type="checkbox"] {
+      width: 100%; height: 100%; margin: 0; cursor: pointer;
+    }
+    .select-mode .thumb-checkbox {
+      display: block;
+    }
+
+    /* Full-screen overlay */
+    #fullscreenOverlay {
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      color: #fff; z-index: 1000;
+    }
+    #fsHeader {
+      width: 100%;
+      display: flex; justify-content: center; align-items: center;
+      gap: 20px; padding: 10px; box-sizing: border-box;
+    }
+    .fs-icon-btn {
+      background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;
+    }
+    #fsInfo {
+      font-size: 16px; text-align: center;
+    }
+    #fsImageContainer {
+      flex: 1; display: flex; align-items: center; justify-content: center; width: 100%;
+    }
+    #fsImage {
+      max-width: 80%; max-height: 80%; touch-action: pan-y;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="appContainer">
+    <!-- Camera view -->
+    <div id="cameraView">
+      <video id="cameraVideo" autoplay playsinline></video>
+      <div id="cameraControls">
+        <button id="galleryBtn" title="Back to Gallery"></button>
+        <button id="captureBtn" title="Capture Photo"></button>
+      </div>
+    </div>
+
+    <!-- Gallery view -->
+    <div id="galleryView">
+      <div id="selectArea">
+        <button id="clickBtn">Click Picture</button>
+        <button id="selectBtn">Select</button>
+        <div id="actionButtons">
+          <button id="deleteSelected" class="action-btn" disabled>Delete</button>
+          <button id="shareSelected" class="action-btn" disabled>Share</button>
+        </div>
+      </div>
+      <div id="galleryContainer">
+        <!-- Thumbnails will be injected here -->
+      </div>
+    </div>
+
+    <!-- Full-screen overlay -->
+    <div id="fullscreenOverlay">
+      <div id="fsHeader">
+        <button id="fsCloseBtn" class="fs-icon-btn" title="Close">✖️</button>
+        <span id="fsInfo"></span>
+        <button id="fsDeleteBtn" class="fs-icon-btn" title="Delete">🗑️</button>
+        <button id="fsShareBtn" class="fs-icon-btn" title="Share">📤</button>
+      </div>
+      <div id="fsImageContainer">
+        <img id="fsImage" src="" alt="Full Screen" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ======================
+    // IndexedDB Setup
+    // ======================
+    const DB_NAME = 'mycam_pwa_db';
+    const DB_STORE = 'photos';
+    let db, imgIndex = 0;
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = function(e) {
+          db = e.target.result;
+          if (!db.objectStoreNames.contains(DB_STORE)) {
+            const store = db.createObjectStore(DB_STORE, { keyPath: 'name' });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+          }
+        };
+        req.onsuccess = function(e) {
+          db = e.target.result;
+          resolve();
+        };
+        req.onerror = function(e) {
+          reject(e);
+        };
+      });
+    }
+
+    function getNextName() {
+      const next = localStorage.getItem('nextImageIndex') || '1';
+      imgIndex = parseInt(next, 10);
+      localStorage.setItem('nextImageIndex', imgIndex + 1);
+      return 'image' + imgIndex;
+    }
+
+    function addPhoto(name, blob, mime, timestamp) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        const store = tx.objectStore(DB_STORE);
+        store.add({ name, blob, mime, timestamp });
+        tx.oncomplete = () => resolve();
+        tx.onerror = e => reject(e);
+      });
+    }
+
+    function deletePhoto(name) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).delete(name);
+        tx.oncomplete = () => resolve();
+        tx.onerror = e => reject(e);
+      });
+    }
+
+    function getAllPhotos() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readonly');
+        const store = tx.objectStore(DB_STORE);
+        const req = store.index('timestamp').openCursor(null, 'prev');
+        const photos = [];
+        req.onsuccess = e => {
+          const cursor = e.target.result;
+          if (cursor) {
+            photos.push(cursor.value);
+            cursor.continue();
+          } else {
+            resolve(photos);
+          }
+        };
+        req.onerror = e => reject(e);
+      });
+    }
+
+    // ======================
+    // DOM Elements
+    // ======================
+    const cameraView = document.getElementById('cameraView');
+    const galleryView = document.getElementById('galleryView');
+    const cameraVideo = document.getElementById('cameraVideo');
+    const captureBtn = document.getElementById('captureBtn');
+    const galleryBtn = document.getElementById('galleryBtn');
+    const clickBtn = document.getElementById('clickBtn');
+    const selectBtn = document.getElementById('selectBtn');
+    const deleteSelected = document.getElementById('deleteSelected');
+    const shareSelected = document.getElementById('shareSelected');
+    const actionButtons = document.getElementById('actionButtons');
+    const galleryContainer = document.getElementById('galleryContainer');
+    const fsOverlay = document.getElementById('fullscreenOverlay');
+    const fsImage = document.getElementById('fsImage');
+    const fsInfo = document.getElementById('fsInfo');
+    const fsCloseBtn = document.getElementById('fsCloseBtn');
+    const fsDeleteBtn = document.getElementById('fsDeleteBtn');
+    const fsShareBtn = document.getElementById('fsShareBtn');
+
+    let videoStream = null;
+    let thumbnails = [];
+    let currentIndex = 0;
+    let selectMode = false;
+    let startX = 0;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await openDB();
+      await renderGallery();    // build gallery from IndexedDB
+
+      // By default, show gallery
+      cameraView.style.display = 'none';
+      galleryView.style.display = 'flex';
+
+      // “Click Picture” opens camera
+      clickBtn.addEventListener('click', () => {
+        galleryView.style.display = 'none';
+        cameraView.style.display = 'flex';
+        startCamera();
+      });
+
+      // Capture photo
+      captureBtn.addEventListener('click', () => {
+        if (!videoStream) return;
+        const track = videoStream.getVideoTracks()[0];
+        new ImageCapture(track).takePhoto()
+          .then(blob => handleBlob(blob))
+          .catch(() => captureViaCanvas());
+      });
+
+      // “Back to Gallery” button (in camera mode)
+      galleryBtn.addEventListener('click', () => {
+        stopCamera();
+        cameraView.style.display = 'none';
+        galleryView.style.display = 'flex';
+      });
+
+      // Initialize thumbnails (for clicking into full screen or selecting)
+      initGallery();
+
+      // Full-screen controls
+      fsCloseBtn.addEventListener('click', closeFullScreen);
+      fsDeleteBtn.addEventListener('click', deleteCurrentFullScreen);
+      fsShareBtn.addEventListener('click', shareCurrentFullScreen);
+
+      fsImage.addEventListener('touchstart', e => {
+        startX = e.touches[0].clientX;
+      });
+      fsImage.addEventListener('touchend', e => {
+        const endX = e.changedTouches[0].clientX;
+        const delta = endX - startX;
+        if (delta > 50 && currentIndex > 0) {
+          currentIndex--;
+          updateFullScreen();
+        } else if (delta < -50 && currentIndex < thumbnails.length - 1) {
+          currentIndex++;
+          updateFullScreen();
+        }
+      });
+
+      // Batch mode toggle
+      selectBtn.addEventListener('click', () => {
+        selectMode = !selectMode;
+        selectBtn.classList.toggle('active', selectMode);
+        updateSelectMode();
+      });
+      deleteSelected.addEventListener('click', deleteBatch);
+      shareSelected.addEventListener('click', shareBatch);
+    });
+
+    // ======================
+    // Camera helpers
+    // ======================
+    function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(s => {
+          videoStream = s;
+          cameraVideo.srcObject = s;
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Cannot access camera.');
+        });
+    }
+    function stopCamera() {
+      if (videoStream) {
+        videoStream.getTracks().forEach(t => t.stop());
+        videoStream = null;
+      }
+    }
+    function captureViaCanvas() {
+      const v = cameraVideo;
+      const c = document.createElement('canvas');
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      c.toBlob(blob => handleBlob(blob), 'image/jpeg', 0.9);
+    }
+    async function handleBlob(blob) {
+      const name = getNextName() + '.jpg';
+      const mime = 'image/jpeg';
+      const timestamp = Date.now();
+      await addPhoto(name, blob, mime, timestamp);
+      stopCamera();
+      cameraView.style.display = 'none';
+      galleryView.style.display = 'flex';
+      await renderGallery();
+      initGallery();
+    }
+
+    // ======================
+    // Gallery rendering
+    // ======================
+    async function renderGallery() {
+      const all = await getAllPhotos(); // sorted newest→oldest
+      // Group by YYYY-MM-DD
+      const grouped = {};
+      all.forEach(item => {
+        const date = new Date(item.timestamp).toISOString().slice(0, 10);
+        if (!grouped[date]) grouped[date] = [];
+        grouped[date].push(item);
+      });
+      const dates = Object.keys(grouped).sort((a,b) => b.localeCompare(a));
+
+      galleryContainer.innerHTML = '';
+      dates.forEach(date => {
+        const h2 = document.createElement('h2');
+        h2.textContent = date;
+        h2.className = 'date-header';
+        galleryContainer.appendChild(h2);
+
+        const row = document.createElement('div');
+        row.className = 'gallery-row';
+        grouped[date].forEach(photo => {
+          const tc = document.createElement('div');
+          tc.className = 'thumb-container';
+
+          const img = document.createElement('img');
+          img.src = URL.createObjectURL(photo.blob);
+          img.dataset.filename = photo.name;
+          img.dataset.size = (photo.blob.size / (1024*1024)).toFixed(2);
+          img.dataset.timestamp = photo.timestamp;
+          img.dataset.mime = photo.mime;
+          img.className = 'thumb-img';
+          img.alt = photo.name;
+
+          const cbWrap = document.createElement('div');
+          cbWrap.className = 'thumb-checkbox';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.dataset.fname = photo.name;
+          cbWrap.appendChild(cb);
+
+          tc.appendChild(img);
+          tc.appendChild(cbWrap);
+          row.appendChild(tc);
+        });
+        galleryContainer.appendChild(row);
+      });
+      thumbnails = Array.from(document.querySelectorAll('.thumb-container'));
+    }
+
+    // ======================
+    // Thumbnail & batch logic
+    // ======================
+    function initGallery() {
+      thumbnails.forEach((container, idx) => {
+        const imgEl = container.querySelector('img.thumb-img');
+        const checkbox = container.querySelector('input[type="checkbox"]');
+        imgEl.addEventListener('click', () => {
+          if (selectMode) {
+            checkbox.checked = !checkbox.checked;
+            updateActionButtons();
+          } else {
+            openFullScreen(idx);
+          }
+        });
+        checkbox.addEventListener('change', updateActionButtons);
+      });
+      updateSelectMode();
+    }
+
+    function updateSelectMode() {
+      thumbnails.forEach(container => {
+        container.classList.toggle('select-mode', selectMode);
+        if (!selectMode) {
+          container.querySelector('input[type="checkbox"]').checked = false;
+        }
+      });
+      actionButtons.style.display = selectMode ? 'flex' : 'none';
+      updateActionButtons();
+    }
+
+    function updateActionButtons() {
+      const anyChecked = Array.from(document.querySelectorAll('.thumb-checkbox input[type="checkbox"]'))
+                            .some(cb => cb.checked);
+      deleteSelected.disabled = !anyChecked;
+      shareSelected.disabled = !anyChecked;
+    }
+
+    async function deleteBatch() {
+      const toDel = Array.from(document.querySelectorAll('.thumb-checkbox input[type="checkbox"]:checked'))
+                         .map(cb => cb.dataset.fname);
+      for (let name of toDel) {
+        await deletePhoto(name);
+      }
+      selectMode = false;
+      selectBtn.classList.remove('active');
+      await renderGallery();
+      initGallery();
+    }
+
+    function shareBatch() {
+      const filesToShare = [];
+      const checkedBoxes = Array.from(document.querySelectorAll('.thumb-checkbox input[type="checkbox"]:checked'));
+      const fetchPromises = checkedBoxes.map(cb => {
+        const container = cb.closest('.thumb-container');
+        const imgEl = container.querySelector('img.thumb-img');
+        const url = imgEl.src;
+        const filename = imgEl.dataset.filename;
+        const mime = imgEl.dataset.mime || 'image/jpeg';
+        return fetch(url).then(r => r.blob()).then(blob => {
+          filesToShare.push(new File([blob], filename, { type: mime }));
+        });
+      });
+      Promise.all(fetchPromises).then(() => {
+        if (navigator.canShare && navigator.canShare({ files: filesToShare })) {
+          navigator.share({ files: filesToShare }).catch(err => console.error('Share failed:', err));
+        } else {
+          alert('Sharing not supported');
+        }
+      });
+    }
+
+    // ======================
+    // Full-screen logic
+    // ======================
+    function openFullScreen(idx) {
+      currentIndex = idx;
+      updateFullScreen();
+      fsOverlay.style.display = 'flex';
+    }
+    function closeFullScreen() {
+      fsOverlay.style.display = 'none';
+    }
+    async function updateFullScreen() {
+      const photo = await getPhotoByIndex(currentIndex);
+      fsImage.src = URL.createObjectURL(photo.blob);
+      const dt = new Date(photo.timestamp).toLocaleString();
+      fsInfo.textContent = `${photo.name} (${(photo.blob.size/(1024*1024)).toFixed(2)} MB)  ${dt}`;
+    }
+    function getPhotoByIndex(idx) {
+      return getAllPhotos().then(list => list[idx]);
+    }
+    async function deleteCurrentFullScreen() {
+      const photo = await getPhotoByIndex(currentIndex);
+      await deletePhoto(photo.name);
+      closeFullScreen();
+      await renderGallery();
+      initGallery();
+    }
+    function shareCurrentFullScreen() {
+      getPhotoByIndex(currentIndex).then(photo => {
+        const blobURL = URL.createObjectURL(photo.blob);
+        const file = new File([photo.blob], photo.name, { type: photo.mime });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file] }).catch(err => console.error('Share failed:', err));
+        } else {
+          window.open(blobURL, '_blank');
+        }
+      });
+    }
+  </script>
+
+  <script>
+    // ======================
+    // Register Service Worker
+    // ======================
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('service-worker.js')
+        .catch(console.error);
+    }
+  </script>
+</body>
+</html>
